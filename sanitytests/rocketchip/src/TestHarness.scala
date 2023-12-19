@@ -4,11 +4,6 @@ package rocketchip
 import firrtl.options.OutputAnnotationFileAnnotation
 import firrtl.stage.FirrtlCircuitAnnotation
 
-// import firrtl.passes.memlib.ReplSeqMemAnnotation
-// import firrtl2.passes.memlib.{InferReadWriteAnnotation, GenVerilogMemBehaviorModelAnno}
-// import firrtl2.stage.{FirrtlStage, OutputFileAnnotation, RunFirrtlTransformAnnotation}
-// import freechips.rocketchip.stage._
-// import freechips.rocketchip.system.RocketChipStage
 import os.Path
 
 import org.chipsalliance.cde.config.{Config, Parameters}
@@ -21,7 +16,7 @@ import chisel3.stage.{
 }
 import circt.stage.{ChiselStage, FirtoolOption}
 import firrtl.stage.AllowUnrecognizedAnnotations
-import firrtl.options.{Dependency, PhaseManager, TargetDirAnnotation}
+import firrtl.options.TargetDirAnnotation
 import logger.LazyLogging
 
 import scala.annotation.nowarn
@@ -37,89 +32,54 @@ case class TestHarness[M <: RawModule](
   lazy val emulator: Path = {
     val outputDirectory: Path = targetDir.getOrElse(os.temp.dir(deleteOnExit = false))
     logger.warn(s"start to compile emulator in $outputDirectory")
-    // val annotations: AnnotationSeq = Seq(
-    //   new ChiselStage,
-    //   new FirrtlStage
-    // ).foldLeft(
-    //   AnnotationSeq(
-    //     Seq(
-    //       TargetDirAnnotation(outputDirectory.toString),
-    //       new TopModuleAnnotation(testHarness),
-    //       new ConfigsAnnotation(configs.map(_.getName)),
+
     //       InferReadWriteAnnotation,
     //       GenVerilogMemBehaviorModelAnno(false),
-    //       RunFirrtlTransformAnnotation(new firrtl2.passes.InlineInstances),
-    //       new OutputBaseNameAnnotation("TestHarness")
-    //     )
-    //   )
-    // ) { case (annos, stage) => stage.transform(annos) }
 
     if (!os.exists(outputDirectory)) {
       os.makeDir.all(outputDirectory)
     }
 
-    val config = FirtoolConfig(outputDir = Some(outputDirectory))
+    val outputAnnotationFile = outputDirectory / s"${testHarness.getSimpleName}.anno.json"
+
+    val config = FirtoolConfig(outputDir = Some(outputDirectory), outputAnnotationFile = Some(outputAnnotationFile))
 
     val filelist = outputDirectory / "filelist.f"
 
     if (config.splitVerilog && os.exists(filelist))
       os.remove(filelist)
 
-    //       InferReadWriteAnnotation,
-
     val params: Parameters = configs
       .map(InstantiateClass.fromClassAndArgs[Config](_))
       .reduce((c1: Parameters, c2: Parameters) => c1 ++ c2)
 
-    val stage = new ChiselStage
     val annos = Seq(
       ChiselGeneratorAnnotation(() => InstantiateClass.fromClassAndArgs(testHarness, params)),
       TargetDirAnnotation(outputDirectory.toString),
       ThrowOnFirstErrorAnnotation,
       PrintFullStackTraceAnnotation,
       AllowUnrecognizedAnnotations,
-      OutputAnnotationFileAnnotation((outputDirectory / s"${testHarness.getSimpleName}.anno.json").toString())
+      OutputAnnotationFileAnnotation(outputAnnotationFile.toString)
     ) ++
       config.firtoolOptions.map(FirtoolOption)
 
-//    val pm = new PhaseManager(
-//      targets = Seq(
-//        Dependency[chisel3.stage.phases.Checks],
-//        Dependency[chisel3.stage.phases.AddImplicitOutputAnnotationFile],
-//        Dependency[chisel3.stage.phases.MaybeAspectPhase],
-//        Dependency[chisel3.stage.phases.AddSerializationAnnotations],
-//        Dependency[chisel3.stage.phases.Convert],
-//        Dependency[chisel3.stage.phases.AddDedupGroupAnnotations],
-//        Dependency[chisel3.stage.phases.MaybeInjectingPhase],
-//        Dependency[circt.stage.phases.AddImplicitOutputFile],
-//        Dependency[circt.stage.phases.Checks],
-//        Dependency[circt.stage.phases.CIRCT]
-//      ),
-//      currentState = Seq(
-//        Dependency[firrtl.stage.phases.AddDefaults],
-//        Dependency[firrtl.stage.phases.Checks]
-//      )
-//    )
-//
-//    val annotations = pm.transform(annos)
-//    val annotations = stage.run(stage.shell.parse(config.chiselOptions, annos))
-    val annotations = stage.execute(config.chiselOptions, annos)
+    val annotations = (new ChiselStage).execute(config.chiselOptions, annos)
 
     val configName = configs.map(_.getName).mkString("_")
 
-    logger.warn(s"$testHarness with configs: $configName generated.")
+    logger.warn(s"${testHarness.getSimpleName} with configs: $configName generated.")
 
+    @nowarn("msg=class Circuit in package firrtl is deprecated.*")
     val circuitNames = annotations.collect {
       case ChiselCircuitAnnotation(circuit) => circuit.name
       case FirrtlCircuitAnnotation(circuit) => circuit.main
     }.distinct
 
-    logger.info(s"circuitNames: ${circuitNames}")
+    logger.info(s"circuitNames: $circuitNames")
     assert(circuitNames.nonEmpty)
 
     val topName = circuitNames.head
 
-    @nowarn
     val duts = {
       if (config.splitVerilog)
         os.read.lines(filelist).map(p => outputDirectory / os.RelPath(p))
@@ -138,7 +98,14 @@ case class TestHarness[M <: RawModule](
     logger.info(s"duts: $duts")
     assert(duts.nonEmpty, "no DUT generated")
 
-//    os.write(outputDirectory / s"$topName.anno.2.json", firrtl.annotations.JsonProtocol.serialize(annotations))
+    os.write(
+      outputDirectory / s"$topName.other.anno.json",
+      firrtl.annotations.JsonProtocol.serialize(annotations.filter {
+        case _: ChiselCircuitAnnotation => false
+        case _: FirrtlCircuitAnnotation => true
+        case _ => true
+      })
+    )
 
     val blackbox =
       os.read

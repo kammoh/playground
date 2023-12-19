@@ -1,18 +1,15 @@
 package sanitytests
 
-import chisel3.stage.phases.Elaborate
-import firrtl.AnnotationSeq
-import firrtl.options.{Dependency, Phase}
 import logger.LazyLogging
-import os._
-import sanitytests.utils.SeqIf
+import utils.SeqIf
 
 import scala.language.implicitConversions
 import scala.reflect.ClassTag
 import java.lang.reflect.Constructor
 
 object utils {
-  def resource(file: String): Path = Path(java.nio.file.Paths.get(getClass().getClassLoader().getResource(file).toURI))
+  def resource(file: String): os.Path =
+    os.Path(java.nio.file.Paths.get(getClass.getClassLoader.getResource(file).toURI))
 
   class SeqIf[A](ifSeq: => Seq[A], cond: => Boolean) {
     def ++(that: Seq[A]): Seq[A] = this.toSeq ++ that
@@ -21,7 +18,7 @@ object utils {
       if (cond) ifSeq else elseItems
     }
 
-    def toSeq = if (cond) ifSeq else Seq()
+    def toSeq: Seq[A] = if (cond) ifSeq else Seq()
   }
 
   object SeqIf {
@@ -41,23 +38,23 @@ object utils {
 
 object InstantiateClass extends LazyLogging {
   /// adapted from https://github.com/seldridge/reflective-builder
-  def getTypes(params: Seq[?]) = params.map {
+  def getTypes(params: Seq[?]): Seq[Class[_]] = params.map {
     /// Integer needs to stay as an Int and not become a java.lang.Integer
     case _: Int => classOf[Int]
     case _: Long => classOf[Long]
     case _: Boolean => classOf[Boolean]
-    case a => a.getClass()
+    case a => a.getClass
   }
 
   def caseObjFromMap[T: ClassTag](m: Map[String, ?]): T = {
     val classTag = implicitly[ClassTag[T]]
     val constructor = classTag.runtimeClass.getDeclaredConstructors.head
-    val classParams = constructor.getParameters()
+    val classParams = constructor.getParameters
     val classArgNames = classParams.map(_.getName)
     val keysDiff = m.keySet.diff(classArgNames.toSet)
     if (keysDiff.nonEmpty) {
       throw new IllegalArgumentException(s"Excess arguments provided: ${keysDiff
-          .mkString(", ")}\n Class ${classTag.getClass().getSimpleName()} constructor args (${classParams.length}) are: ${classArgNames
+          .mkString(", ")}\n Class ${classTag.getClass.getSimpleName} constructor args (${classParams.length}) are: ${classArgNames
           .mkString(", ")}")
     }
     val constructorArgs = classParams.map { param =>
@@ -77,12 +74,12 @@ object InstantiateClass extends LazyLogging {
 
   def fromClassAndArgs[M](clazz: Class[_ <: M], params: Any*): M = {
 
-    val constructors = clazz.getConstructors()
+    val constructors = clazz.getConstructors
 
     if (true) {
-      logger.warn(s"${clazz.getSimpleName()} has ${constructors.size} constructor(s):")
+      logger.warn(s"${clazz.getSimpleName} has ${constructors.size} constructor(s):")
       for (constr <- constructors) {
-        println(s"    ${constr}   (with ${constr.getParameters().length} params)")
+        println(s"    $constr   (with ${constr.getParameters.length} params)")
       }
     }
 
@@ -115,7 +112,7 @@ object InstantiateClass extends LazyLogging {
             println(s"classPattern match")
             Class.forName(a).getConstructors()(0).newInstance(arguments.map(stringToAny).toSeq: _*)
         }
-      case string @ _ => str
+      case _ => str
     }
   }
 
@@ -125,23 +122,25 @@ object InstantiateClass extends LazyLogging {
 }
 
 case class FirtoolConfig(
-  splitVerilog:              Boolean = true,
-  dumpFir:                   Boolean = true,
-  outputDir:                 Option[FilePath],
-  disableUnknownAnnotations: Boolean = true,
-  verbose:                   Int = 0,
-  debug:                     Boolean = false,
-  preserveNames:             Boolean = false,
-  noRand:                    Boolean = true,
-  sourceLocaters:            Boolean = true,
-  disallowPackedArrays:      Boolean = false,
-  disallowMuxInlining:       Boolean = false,
-  disallowLocalVariables:    Boolean = true,
-  omitVersionComment:        Boolean = true,
-  emittedLineLength:         Int = 120,
-  preserveAggregates:        String = "none", // none, 1d-vec, vec, all,
-  extraLoweringOptions:      Seq[String] = Seq.empty,
-  additionalChiselOptions:   Seq[String] = Seq.empty,
+  splitVerilog:               Boolean = true,
+  dumpFir:                    Boolean = true,
+  outputDir:                  Option[os.FilePath] = None,
+  outputAnnotationFile:       Option[os.FilePath] = None,
+  disableUnknownAnnotations:  Boolean = true,
+  verbose:                    Int = 0,
+  debug:                      Boolean = false,
+  preserveNames:              Boolean = false,
+  noRand:                     Boolean = true,
+  sourceLocaters:             Boolean = true,
+  disallowPackedArrays:       Boolean = false,
+  disallowMuxInlining:        Boolean = false,
+  disallowLocalVariables:     Boolean = true,
+  omitVersionComment:         Boolean = true,
+  warnUnprocessedAnnotations: Boolean = true,
+  emittedLineLength:          Int = 120,
+  preserveAggregates:         String = "none", // none, 1d-vec, vec, all,
+  extraLoweringOptions:       Seq[String] = Seq.empty,
+  additionalChiselOptions:    Seq[String] = Seq.empty,
   // (doc = "path to firtool binary")
   firtoolBinPath: Option[String] = None,
   // (doc = "replace firtool options with firtoolOptions instead of appending them to the default options")
@@ -166,7 +165,7 @@ case class FirtoolConfig(
   def chiselOptions: Array[String] = {
     Array("--target", "systemverilog") ++
       SeqIf(splitVerilog)("--split-verilog") ++
-      SeqIf(firtoolBinPath)((_) => "--firtool-binary-path", p => p) ++
+      SeqIf(firtoolBinPath)(_ => "--firtool-binary-path", p => p) ++
       SeqIf(dumpFir)("--dump-fir") ++
       additionalChiselOptions
   }
@@ -189,6 +188,10 @@ case class FirtoolConfig(
       ) ++ SeqIf(debug)(
         "--disable-opt",
         "--mlir-pretty-debuginfo",
+      ) ++ SeqIf(outputAnnotationFile)( //
+        f => s"--output-annotation-file=$f",
+      ) ++ SeqIf(warnUnprocessedAnnotations)(
+        "--warn-on-unprocessed-annotations"
       ) ++ SeqIf(splitVerilog)(
         "--split-verilog",
       ) ++ SeqIf(!sourceLocaters)(
@@ -200,25 +203,28 @@ case class FirtoolConfig(
         "--disable-all-randomization",
       ) ++ SeqIf(disableUnknownAnnotations)(
         "--disable-annotation-unknown",
-      ) ++ SeqIf(outputDir)(dir => s"-o=${dir}") ++ otherOptions
+      ) ++ SeqIf(outputDir)(dir => s"-o=$dir") ++ otherOptions
   }
 }
 
-class FilterUnhandled extends Phase {
-
-  override def prerequisites = Seq(Dependency[Elaborate])
-
-  override def optionalPrerequisites = Seq.empty
-
-  override def optionalPrerequisiteOf = Seq.empty
-
-  override def invalidates(a: Phase) = false
-
-  def transform(annotations: AnnotationSeq): AnnotationSeq = annotations.flatMap {
-    case a: freechips.rocketchip.util.AddressMapAnnotation => None
-    case a: freechips.rocketchip.util.SRAMAnnotation => None
-    case a: freechips.rocketchip.util.ParamsAnnotation => None
-    case a: freechips.rocketchip.util.RegFieldDescMappingAnnotation => None
-    case a => Some(a)
-  }
-}
+//import firrtl.AnnotationSeq
+//import firrtl.options.{Dependency, Phase}
+//
+//class FilterUnhandled extends Phase {
+//
+//  override def prerequisites = Seq(Dependency[chisel3.stage.phases.Elaborate])
+//
+//  override def optionalPrerequisites = Seq.empty
+//
+//  override def optionalPrerequisiteOf = Seq.empty
+//
+//  override def invalidates(a: Phase) = false
+//
+//  def transform(annotations: AnnotationSeq): AnnotationSeq = annotations.flatMap {
+//    case a: freechips.rocketchip.util.AddressMapAnnotation => None
+//    case a: freechips.rocketchip.util.SRAMAnnotation => None
+//    case a: freechips.rocketchip.util.ParamsAnnotation => None
+//    case a: freechips.rocketchip.util.RegFieldDescMappingAnnotation => None
+//    case a => Some(a)
+//  }
+//}
