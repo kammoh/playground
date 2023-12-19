@@ -20,11 +20,14 @@ update-patches:
 bsp:
 	mill -i mill.bsp.BSP/install
 
+bloop:
+	mill mill.contrib.bloop.Bloop/install
+
 compile:
-	mill -i -j 0 __.compile
+	mill -j 0 __.compile
 
 test:
-	mill -i -j 0 sanitytests.rocketchip
+	mill -j 0 sanitytests.rocketchip
 
 clean:
 	git clean -fd
