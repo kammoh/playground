@@ -7,7 +7,7 @@ import os._
 
 class TestConfig
     extends Config((_, _, up) => {
-      case ClockGateModelFile => Some("/vsrc/EICG_wrapper.v")
+      case ClockGateModelFile => Some(sanitytests.utils.resource("vsrc/EICG_wrapper.v").toString)
       case BootROMLocated(x) =>
         up(BootROMLocated(x)).map(_.copy(contentFileName = {
           val tmp = os.temp.dir(deleteOnExit = false)

@@ -2,26 +2,26 @@ package sanitytests.rocketchip
 
 import utest._
 
-/** software dependencies:
-  * clang -> bootrom cross compiling / veriltor C compiling
-  * verilator -> emulator generation
-  * cmake -> simulation
-  * ninja -> fast verilator build tool
-  * spike -> isa behavior model linking in emulator
+/** software dependencies: clang -> bootrom cross compiling / veriltor C compiling verilator -> emulator generation
+  * cmake -> simulation ninja -> fast verilator build tool spike -> isa behavior model linking in emulator
   */
 object VerilatorTest extends TestSuite {
-  val outputDirectory = os.pwd / "out" / "VerilatorTest"
+  val outputDirectory: os.Path = os.pwd / "out" / "VerilatorTest"
   os.remove.all(outputDirectory)
-  os.makeDir(outputDirectory)
+  os.makeDir.all(outputDirectory)
   val tests = Tests {
     test("build TestHarness emulator") {
       val testHarness = classOf[freechips.rocketchip.system.TestHarness]
-      val configs = Seq(classOf[TestConfig], classOf[freechips.rocketchip.system.DefaultConfig])
+      val configs = Seq(
+        classOf[TestConfig],
+        classOf[freechips.rocketchip.system.DefaultConfig],
+      )
       val emulator = TestHarness(testHarness, configs, Some(outputDirectory)).emulator
       test("build hello") {
         os.proc(
           "clang",
-          "-o", "hello",
+          "-o",
+          "hello",
           s"${sanitytests.utils.resource("entry.S")}",
           s"${sanitytests.utils.resource("csrc/hello.c")}",
           "--target=riscv64",

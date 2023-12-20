@@ -11,7 +11,7 @@ import $ivy.`com.lihaoyi::mill-contrib-bloop:$MILL_VERSION`
 import mill.bsp._
 
 // VCS version
-import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version::0.4.0`
+//import $ivy.`de.tototec::de.tobiasroeser.mill.vcs.version::0.4.0`
 
 // input build.sc from each repositories.
 import $file.dependencies.cde.{build => cdeBuild}
@@ -121,7 +121,8 @@ trait CommonModule extends ScalaModule {
     // chisel:
     "-Ymacro-annotations",
     "-language:reflectiveCalls",
-    "-Wconf:cat=unused&msg=parameter _.* in method .* is never used:s",
+    // ignore warning for arguments starting with an underscore
+    "-Wconf:cat=unused&msg=parameter _.* in .* is never used:s",
     "-Wconf:cat=deprecation&msg=Importing from firrtl is deprecated:s",
     "-Wconf:cat=deprecation&msg=will not be supported as part of the migration to the MLIR-based FIRRTL Compiler:s"
   )
@@ -141,18 +142,36 @@ trait CommonModule extends ScalaModule {
 
 }
 
-object mycde extends cdeBuild.CDE with PublishModule {
+object mycde extends cdeBuild.CDE with ScalaModule with PublishModule {
   override def millSourcePath = os.pwd / "dependencies" / "cde" / "cde"
 
   override def scalaVersion = ivys.sv
+
+  override def scalacOptions: Target[Seq[String]] = super.scalacOptions() ++ Seq(
+    "-Wconf:cat=unused&msg=parameter .* in .* is never used:s",
+  )
+
 }
 
-object rocketchipMacros extends rocketchipBuild.MacrosModule with CommonModule with SbtModule {
+object myRocketchipMacros extends rocketchipBuild.MacrosModule with CommonModule with SbtModule {
   override def millSourcePath = os.pwd / "dependencies" / "rocket-chip" / "macros"
 
   override def scalaVersion = ivys.sv
 
-  override def scalaReflectIvy = ivy"org.scala-lang:scala-reflect:${ivys.sv}" // depJava("scala-reflect")
+  override def scalacOptions: Target[Seq[String]] = super.scalacOptions() ++ Seq(
+    "-Wconf:cat=unused&msg=parameter .* in .* is never used:s",
+  )
+
+  override def scalaReflectIvy = depJava("scala-reflect")
+
+  override def ivyDeps = Agg(
+    dep("chisel"),
+    depJava("scala-reflect"),
+  )
+
+  override def scalacPluginIvyDeps = Agg(
+    depPlugin("chisel-plugin")
+  )
 }
 
 object myrocketchip extends rocketchipBuild.RocketChipModule with CommonModule with SbtModule {
@@ -163,11 +182,16 @@ object myrocketchip extends rocketchipBuild.RocketChipModule with CommonModule w
     dep("chisel"),
     dep("pprint"),
     dep("mainargs"),
-    dep("json4s-jackson")
+    dep("json4s-jackson"),
+    depJava("scala-reflect"),
   )
 
   override def scalacPluginIvyDeps = Agg(
     depPlugin("chisel-plugin")
+  )
+
+  override def scalacOptions: Target[Seq[String]] = super.scalacOptions() ++ Seq(
+    "-Wconf:cat=unused&msg=parameter .* in .* is never used:s",
   )
 
   override def millSourcePath = os.pwd / "dependencies" / "rocket-chip"
@@ -188,11 +212,11 @@ object myrocketchip extends rocketchipBuild.RocketChipModule with CommonModule w
 
   def cdeModule = mycde
 
-  def macrosModule = rocketchipMacros
+  def macrosModule = myRocketchipMacros
 
-  def moduleDeps = super.moduleDeps ++ Seq(
+  override def moduleDeps = super.moduleDeps ++ Seq(
     mycde,
-    rocketchipMacros,
+    myRocketchipMacros,
     myhardfloat
   )
 
@@ -200,7 +224,7 @@ object myrocketchip extends rocketchipBuild.RocketChipModule with CommonModule w
 
 object inclusivecache extends CommonModule {
   override def millSourcePath =
-    os.pwd / "dependencies" / "rocket-chip-inclusive-cache" / 'design / 'craft / "inclusivecache"
+    os.pwd / "dependencies" / "rocket-chip-inclusive-cache" / "design" / "craft" / "inclusivecache"
   override def moduleDeps = super.moduleDeps ++ Seq(myrocketchip)
 }
 
@@ -256,6 +280,10 @@ object myhardfloat extends ScalaModule with CommonModule with SbtModule with har
   override def scalacPluginIvyDeps = Agg(
     depPlugin("chisel-plugin")
   )
+
+  override def scalacOptions: Target[Seq[String]] = super.scalacOptions() ++ Seq(
+    "-Wconf:cat=unused&msg=parameter .* in .* is never used:s",
+  )
 }
 
 object playground extends CommonModule {
@@ -304,27 +332,19 @@ object playground extends CommonModule {
     ).call(T.dest)
     PathRef(T.dest)
   }
-
 }
 
 object sanitytests extends CommonModule {
   override def scalaVersion = ivys.sv
 
-  override def ivyDeps = super.ivyDeps() ++ Agg(
-    dep("utest")
-    // dep("firrtl2")
-  )
-
   object rocketchip extends ScalaTests with CommonModule with TestModule.Utest {
-    override def ivyDeps = Agg(
+    override def ivyDeps = super.ivyDeps() ++ Agg(
       dep("utest")
-      // dep("firrtl2")
     )
-    override def moduleDeps = super.moduleDeps ++ Seq(myrocketchip)
+    override def moduleDeps = super.moduleDeps ++ Seq(playground)
 
     def libraryResources = T {
-      val x86Dir = T.ctx().dest
-      os.proc("make", s"DESTDIR=${x86Dir}", "install").call(spike.compile())
+      os.proc("make", s"DESTDIR=${T.ctx().dest}", "install").call(spike.compile())
       PathRef(T.ctx().dest)
     }
     override def resources = T.sources {
@@ -333,29 +353,35 @@ object sanitytests extends CommonModule {
   }
 
   object vcu118 extends ScalaTests with CommonModule with TestModule.Utest {
-    override def ivyDeps = Agg(
+    override def ivyDeps = super.ivyDeps() ++ Agg(
       dep("utest"),
-      dep("firrtl2")
     )
-    override def moduleDeps = super.moduleDeps ++ Seq(myrocketchip, shells)
+    override def moduleDeps = super.moduleDeps ++ Seq(playground)
   }
 
-  def moduleDeps = Seq(myrocketchip, shells)
+  override def moduleDeps = Seq(playground)
 }
 
 object spike extends Module {
   override def millSourcePath = os.pwd / "dependencies" / "riscv-isa-sim"
   // ask make to cache file.
   def compile = T.persistent {
+    val isa = "RV64IMAFDC_zicntr_zihpm"
+    val buildDir = T.ctx().dest / "build" / isa
+    if (!os.exists(buildDir)) {
+      os.makeDir.all(buildDir)
+    }
     os.proc(
       millSourcePath / "configure",
       "--prefix",
       "/usr",
+      s"--with-isa=$isa",
+      "--enable-optional-subprojects",
       "--without-boost",
       "--without-boost-asio",
-      "--without-boost-regex"
+      "--without-boost-regex",
     ).call(
-      T.ctx().dest,
+      cwd = buildDir,
       Map(
         "CC" -> "clang",
         "CXX" -> "clang++",
@@ -364,8 +390,8 @@ object spike extends Module {
         "LD" -> "lld"
       )
     )
-    os.proc("make", "-j", Runtime.getRuntime().availableProcessors()).call(T.ctx().dest)
-    T.ctx().dest
+    os.proc("make", "-j", Runtime.getRuntime.availableProcessors()).call(cwd = buildDir)
+    buildDir
   }
 }
 
@@ -374,15 +400,16 @@ object dromajo extends Module {
 
   // ask make to cache file.
   def compile = T.persistent {
+    val buildDir = T.ctx().dest
     os.proc(
       "cmake",
       "-DCMAKE_BUILD_TYPE=Release",
       "-B",
-      T.ctx().dest
+      buildDir
     ).call(
       cwd = millSourcePath
     )
-    os.proc("cmake", "--build", T.ctx().dest, "-j").call(cwd = millSourcePath)
-    T.ctx().dest
+    os.proc("cmake", "--build", buildDir, "-j").call(cwd = millSourcePath)
+    buildDir
   }
 }
